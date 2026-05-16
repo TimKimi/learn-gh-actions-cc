@@ -1,0 +1,124 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:      # 允许手动运行
+    inputs:
+      deploy_env:
+        description: '部署环境'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  APP_VERSION: ${{ github.sha }}
+
+jobs:
+  # ======= 代码质量 + 多版本测试 =======
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20]          # 两个版本并行跑
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'                  # 自动缓存 node_modules
+
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm test
+
+      - name: 上传测试覆盖率（仅 Node 20）
+        if: matrix.node-version == 20
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+
+  # ======= 构建 Docker 镜像 =======
+  build-docker:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 构建镜像
+        run: docker build -t learn-gh-actions:${{ github.sha }} .
+      - name: 导出镜像为 tar
+        run: docker save learn-gh-actions:${{ github.sha }} > image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
+
+  # ======= 集成测试（带 Redis 服务容器） =======
+  integration-test:
+    needs: build-docker
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+      - run: docker load < image.tar
+      - name: 启动应用容器并测试
+        run: |
+          docker run -d -p 3000:3000 --name app learn-gh-actions:${{ github.sha }}
+          sleep 5
+          curl http://localhost:3000/api/health
+
+  # ======= 部署到 GitHub Pages（仅 main 分支） =======
+  deploy-pages:
+    if: github.ref == 'refs/heads/main'
+    needs: integration-test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v4
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public/
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  # ======= 内网穿透冒烟测试（ngrok） =======
+  smoke-test-ngrok:
+    needs: integration-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+      - run: docker load < image.tar
+      - name: 启动容器
+        run: docker run -d -p 3000:3000 --name app learn-gh-actions:${{ github.sha }}
+      
+      - name: 通过 ngrok 暴露服务
+        uses: nick-invision/ngrok@v1
+        with:
+          authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
+          port: 3000
+
+      - name: 验证公网 URL 可访问
+        run: |
+          NGROK_URL=$(curl -s localhost:4040/api/tunnels | jq -r '.tunnels[0].public_url')
+          echo "公网地址: $NGROK_URL"
+          curl --fail "$NGROK_URL/api/health" || exit 1
