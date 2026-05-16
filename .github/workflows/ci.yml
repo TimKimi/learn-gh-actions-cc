@@ -87,6 +87,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: integration-test
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -110,12 +113,24 @@ jobs:
       - run: docker load < image.tar
       - name: 启动容器
         run: docker run -d -p 3000:3000 --name app learn-gh-actions:${{ github.sha }}
-
-      - name: 通过 ngrok 暴露服务
-        uses: ngrok/ngrok-action@v1
-        with:
-          authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
-          port: 3000
+      
+      - name: 安装并启动 ngrok
+        run: |
+          # 下载 ngrok 客户端
+          curl -sSL https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz -o ngrok.tgz
+          tar xzf ngrok.tgz
+          # 授权并启动隧道
+          ./ngrok config add-authtoken ${{ secrets.NGROK_AUTHTOKEN }}
+          ./ngrok http 3000 --log=stdout &
+          # 等待隧道建立（最多等 30 秒）
+          for i in {1..30}; do
+            if curl -s localhost:4040/api/tunnels | jq -e '.tunnels[0].public_url' > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
 
       - name: 验证公网 URL 可访问
         run: |
