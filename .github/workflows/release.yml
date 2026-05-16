@@ -4,11 +4,18 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write      # 允许创建 release、推送 tag 等
+  issues: write        # 允许在 issue 上评论（semantic-release 可能会用）
+  pull-requests: write # 允许在 PR 上评论
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # 避免使用默认 token 检出代码
       - uses: actions/setup-node@v4
         with:
           node-version: 20
