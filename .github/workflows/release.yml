@@ -5,9 +5,9 @@ on:
     branches: [main]
 
 permissions:
-  contents: write      # 允许创建 release、推送 tag 等
-  issues: write        # 允许在 issue 上评论（semantic-release 可能会用）
-  pull-requests: write # 允许在 PR 上评论
+  contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
   release:
@@ -15,18 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false   # 避免使用默认 token 检出代码
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm ci
       - name: 自动发布(semantic-release)
         uses: cycjimmy/semantic-release-action@v4
-        with:
-          extra_plugins: |
-            @semantic-release/commit-analyzer
-            @semantic-release/release-notes-generator
-            @semantic-release/changelog
-            @semantic-release/github
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
