@@ -13,8 +13,9 @@ app.get('/api/hello', (req, res) => {
   res.json({ message: 'Hello, GitHub Actions!' });
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);
 });
 
-module.exports = app; // 为测试导出
+// 导出 app 供测试使用，同时导出 server 以便测试后关闭
+module.exports = { app, server };
