@@ -110,9 +110,9 @@ jobs:
       - run: docker load < image.tar
       - name: 启动容器
         run: docker run -d -p 3000:3000 --name app learn-gh-actions:${{ github.sha }}
-      
+
       - name: 通过 ngrok 暴露服务
-        uses: nick-invision/ngrok@v1
+        uses: ngrok/ngrok-action@v1
         with:
           authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
           port: 3000
